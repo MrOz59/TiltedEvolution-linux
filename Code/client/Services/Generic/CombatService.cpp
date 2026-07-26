@@ -15,6 +15,7 @@
 #include <Forms/TESObjectWEAP.h>
 #include <Forms/TESAmmo.h>
 #include <Games/ActorExtension.h>
+#include <Games/References.h>
 
 CombatService::CombatService(World& aWorld, TransportService& aTransport, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
@@ -27,9 +28,10 @@ CombatService::CombatService(World& aWorld, TransportService& aTransport, entt::
     m_projectileLaunchConnection = aDispatcher.sink<NotifyProjectileLaunch>().connect<&CombatService::OnNotifyProjectileLaunch>(this);
 }
 
-void CombatService::OnUpdate(const UpdateEvent& acEvent) const noexcept
+void CombatService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
     RunTargetUpdates(static_cast<float>(acEvent.Delta));
+    RunPvpCombatUpdates();
 }
 
 void CombatService::OnLocalComponentRemoved(entt::registry& aRegistry, entt::entity aEntity) const noexcept
@@ -160,8 +162,32 @@ void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMes
     Projectile::Launch(&result, launchData);
 }
 
-void CombatService::OnHitEvent(const HitEvent& acEvent) const noexcept
+void CombatService::OnHitEvent(const HitEvent& acEvent) noexcept
 {
+    // Health bars: the game only draws one for an actor it treats as an
+    // opponent. Remote players are in the player faction, so a hit between
+    // players is not combat as far as the HUD is concerned. Entering real
+    // combat fixes that for the vanilla HUD and for any health bar mod,
+    // without touching factions, Essential or the bleedout behaviour.
+    if (m_transport.IsConnected() && World::Get().GetServerSettings().PvpEnabled)
+    {
+        auto* pHitter = Cast<Actor>(TESForm::GetById(acEvent.HitterId));
+        auto* pHittee = Cast<Actor>(TESForm::GetById(acEvent.HitteeId));
+
+        if (pHitter && pHittee)
+        {
+            const auto* pExHitter = pHitter->GetExtension();
+            const auto* pExHittee = pHittee->GetExtension();
+
+            // Only player-versus-player, and only pairs involving us: the
+            // local player is the one whose HUD and combat state we can drive.
+            if (pExHitter->IsLocalPlayer() && pExHittee->IsRemotePlayer())
+                EnterPvpCombat(pHitter, pHittee);
+            else if (pExHitter->IsRemotePlayer() && pExHittee->IsLocalPlayer())
+                EnterPvpCombat(pHittee, pHitter);
+        }
+    }
+
 #if 0
     if (!m_transport.IsConnected())
         return;
@@ -197,6 +223,70 @@ void CombatService::OnHitEvent(const HitEvent& acEvent) const noexcept
 
     pHittee->SetCombatTargetEx(pHitter);
 #endif
+}
+
+void CombatService::EnterPvpCombat(Actor* apLocal, Actor* apRemote) noexcept
+{
+    auto& engagement = m_pvpEngagements[apRemote->formID];
+    engagement.lastDamage = std::chrono::steady_clock::now();
+
+    // StartCombatEx is a no-op when the target is already the combat target, so
+    // this is safe to call on every hit.
+    apLocal->StartCombatEx(apRemote);
+    apRemote->StartCombatEx(apLocal);
+}
+
+void CombatService::RunPvpCombatUpdates() noexcept
+{
+    if (m_pvpEngagements.empty())
+        return;
+
+    // No damage traded for this long ends it.
+    constexpr auto cPvpTimeout = 60s;
+
+    auto* pLocalPlayer = PlayerCharacter::Get();
+    if (!pLocalPlayer)
+    {
+        m_pvpEngagements.clear();
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const bool localSheathed = !pLocalPlayer->actorState.IsWeaponDrawn();
+
+    for (auto it = m_pvpEngagements.begin(); it != m_pvpEngagements.end();)
+    {
+        auto* pRemote = Cast<Actor>(TESForm::GetById(it->first));
+
+        // The remote player is gone, gave up its remote status, or died.
+        bool ended = !pRemote || !pRemote->GetExtension()->IsRemotePlayer();
+
+        if (!ended)
+            ended = pRemote->IsDead() || pLocalPlayer->IsDead();
+
+        if (!ended)
+            ended = now - it->second.lastDamage >= cPvpTimeout;
+
+        // Both sides putting their weapons away is an explicit "we are done".
+        if (!ended)
+            ended = localSheathed && !pRemote->actorState.IsWeaponDrawn();
+
+        if (!ended)
+        {
+            ++it;
+            continue;
+        }
+
+        if (pRemote)
+        {
+            if (pLocalPlayer->GetCombatTarget() == pRemote)
+                pLocalPlayer->StopCombat();
+            if (pRemote->GetCombatTarget() == pLocalPlayer)
+                pRemote->StopCombat();
+        }
+
+        it = m_pvpEngagements.erase(it);
+    }
 }
 
 void CombatService::RunTargetUpdates(const float acDelta) const noexcept
