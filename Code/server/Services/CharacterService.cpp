@@ -353,6 +353,8 @@ void CharacterService::OnOwnershipTransferEvent(const OwnershipTransferEvent& ac
             pMovementComponent->Tick = 0;
         }
 
+        spdlog::info("[sync] ownership of character {:X} -> player {:X} (sequencing baseline reset)", World::ToInteger(acEvent.Entity), pPlayer->GetId());
+
         pPlayer->Send(response);
 
         foundOwner = true;
@@ -447,6 +449,16 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
         // A forged far-future tick must not pin the entity and make every
         // subsequent legitimate update look stale.
         const bool isFreshMovement = message.Tick > movementComponent.Tick && message.Tick <= maxAcceptedTick;
+
+        // Movement runs at 20 Hz per player, so aggregate instead of logging every
+        // packet. Reordered/stale drops are expected under loss; a large or growing
+        // count while the client is stationary is not.
+        if (!isFreshMovement)
+        {
+            static uint64_t s_staleMovements = 0;
+            if (++s_staleMovements % 25 == 1)
+                spdlog::info("[sync] rejected stale/implausible movement #{} (tick {} vs stored {}, max {})", s_staleMovements, message.Tick, movementComponent.Tick, maxAcceptedTick);
+        }
 
         if (isFreshMovement)
         {
@@ -725,7 +737,7 @@ void CharacterService::TransferOwnership(Player* apPlayer, const uint32_t acServ
 
     BroadcastActorData(apPlayer, *it, acActorData);
 
-    spdlog::debug("\tOwnership claimed {:X}", acServerId);
+    spdlog::info("[sync] ownership of character {:X} claimed by player {:X} (sequencing baseline reset)", acServerId, apPlayer->GetId());
 }
 
 ActorData CharacterService::BuildActorData(const entt::entity acEntity) const noexcept

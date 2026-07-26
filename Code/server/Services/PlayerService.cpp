@@ -49,12 +49,16 @@ void SendVisibilityChanges(World& aWorld, Player* apPlayer, const CellIdComponen
             CharacterSpawnRequest spawnMessage;
             CharacterService::Serialize(aWorld, character, &spawnMessage);
             apPlayer->Send(spawnMessage);
+            spdlog::info("[interest] player {:X} <- SPAWN character {:X} (grid {},{} -> {},{})", apPlayer->GetId(), World::ToInteger(character), acOldCell.CenterCoords.X, acOldCell.CenterCoords.Y,
+                         acNewCell.CenterCoords.X, acNewCell.CenterCoords.Y);
         }
         else
         {
             NotifyRemoveCharacter removeMessage;
             removeMessage.ServerId = World::ToInteger(character);
             apPlayer->Send(removeMessage);
+            spdlog::info("[interest] player {:X} <- REMOVE character {:X} (grid {},{} -> {},{})", apPlayer->GetId(), World::ToInteger(character), acOldCell.CenterCoords.X, acOldCell.CenterCoords.Y,
+                         acNewCell.CenterCoords.X, acNewCell.CenterCoords.Y);
         }
     }
 }
