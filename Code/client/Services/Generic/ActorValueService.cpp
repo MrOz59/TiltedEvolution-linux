@@ -289,10 +289,17 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
         return;
     }
 
-    const float newHealth = pActor->GetActorValue(ActorValueInfo::kHealth) + acMessage.DeltaHealth;
+    const float previousHealth = pActor->GetActorValue(ActorValueInfo::kHealth);
+    const float newHealth = previousHealth + acMessage.DeltaHealth;
     pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, newHealth);
 
     const float health = pActor->GetActorValue(ActorValueInfo::kHealth);
+
+    // A remote player's health has to end up on the Actor itself, so that the
+    // game's own HUD and any health-bar mod can read it like for any NPC.
+    // Logging the applied value tells us whether the write actually landed.
+    spdlog::info("[health] remote {:X} delta {:+.1f}: {:.1f} -> {:.1f} (requested {:.1f}, max {:.1f})", acMessage.Id, acMessage.DeltaHealth, previousHealth, health, newHealth,
+                 pActor->GetActorPermanentValue(ActorValueInfo::kHealth));
     if (!pActor->IsDead() && health <= 0.f)
     {
         ActorExtension* pExtension = pActor->GetExtension();

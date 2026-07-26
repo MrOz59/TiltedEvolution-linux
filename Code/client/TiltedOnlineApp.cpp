@@ -11,6 +11,8 @@
 #include "LinuxDiag.h"
 
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -38,10 +40,20 @@ TiltedOnlineApp::TiltedOnlineApp()
     create_directory(logPath, ec);
 
     auto rotatingLogger = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath / "tp_client.log", 1048576 * 5, 3);
-    // rotatingLogger->set_level(spdlog::level::debug);
     auto console = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     auto logger = std::make_shared<spdlog::logger>("", spdlog::sinks_init_list{console, rotatingLogger});
     logger->set_pattern("%^[%Y-%m-%d %H:%M:%S.%e] [%l] [tid %t] %$ %v");
+
+    // Diagnosing sync problems needs the debug records (health deltas, actor value
+    // updates, ownership). Honour the same TE_LOG_LEVEL the launcher uses so this
+    // does not require a rebuild. Defaults to info.
+    if (const char* pLevel = std::getenv("TE_LOG_LEVEL"))
+    {
+        const auto level = spdlog::level::from_str(pLevel);
+        if (level != spdlog::level::off || std::strcmp(pLevel, "off") == 0)
+            logger->set_level(level);
+    }
+
     spdlog::flush_every(std::chrono::seconds(1));
     set_default_logger(logger);
 }
