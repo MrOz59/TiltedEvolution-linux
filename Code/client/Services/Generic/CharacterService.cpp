@@ -473,7 +473,16 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     pActor->GetExtension()->SetPlayer(acMessage.IsPlayer);
     if (acMessage.IsPlayer)
     {
-        pActor->SetIgnoreFriendlyHit(true);
+        // SetPlayerRespawnMode puts remote players in the player faction, which
+        // makes every hit between players a friendly hit. With IGNORE_FRIENDLY_HITS
+        // the game then discards the hit before it produces damage, a hit reaction
+        // or a health bar - only the physical knockback survives, and a charged
+        // attack's stagger, because those are impulses rather than damage.
+        // Keep the flag when PvP is off (players should not hurt each other at
+        // all), and clear it when PvP is on so the game treats the hit normally.
+        // Essential is deliberately left alone: essential NPCs do show a health
+        // bar and go to bleedout, which is exactly the behaviour wanted here.
+        pActor->SetIgnoreFriendlyHit(!World::Get().GetServerSettings().PvpEnabled);
         pActor->SetPlayerRespawnMode();
         m_world.emplace_or_replace<PlayerComponent>(*entity, acMessage.PlayerId);
     }
@@ -1439,7 +1448,9 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
     pActor->GetExtension()->SetPlayer(acMessage.IsPlayer);
     if (acMessage.IsPlayer)
     {
-        pActor->SetIgnoreFriendlyHit(true);
+        // Same reasoning as the other spawn path: with PvP on, player hits must
+        // not be discarded as friendly fire.
+        pActor->SetIgnoreFriendlyHit(!World::Get().GetServerSettings().PvpEnabled);
         pActor->SetPlayerRespawnMode();
         m_world.emplace_or_replace<PlayerComponent>(aEntity, acMessage.PlayerId);
     }

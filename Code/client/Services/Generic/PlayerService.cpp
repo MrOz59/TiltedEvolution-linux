@@ -28,6 +28,8 @@
 #include <Forms/TESGlobal.h>
 #include <Games/Overrides.h>
 #include <Games/References.h>
+
+#include <Components.h>
 #include <AI/AIProcess.h>
 #include <EquipManager.h>
 #include <Forms/TESRace.h>
@@ -100,6 +102,20 @@ void PlayerService::OnServerSettingsReceived(const ServerSettings& acSettings) n
     }
 
     ToggleDeathSystem(acSettings.DeathSystemEnabled);
+
+    // Remote players sit in the player faction, so every hit between players is a
+    // friendly hit. Refresh the flag on already spawned players too, otherwise
+    // toggling PvP only takes effect for players who spawn afterwards.
+    auto remotePlayerView = m_world.view<FormIdComponent, PlayerComponent>();
+    for (auto entity : remotePlayerView)
+    {
+        const auto& formIdComponent = remotePlayerView.get<FormIdComponent>(entity);
+        if (formIdComponent.Id == 0x14)
+            continue;
+
+        if (auto* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id)))
+            pActor->SetIgnoreFriendlyHit(!acSettings.PvpEnabled);
+    }
 }
 
 void PlayerService::OnNotifyPlayerRespawn(const NotifyPlayerRespawn& acMessage) const noexcept
