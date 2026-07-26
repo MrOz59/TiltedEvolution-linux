@@ -54,6 +54,10 @@ private:
     struct PvpEngagement
     {
         std::chrono::steady_clock::time_point lastDamage;
+        // "Both sheathed" only ends a fight that was fought with weapons out.
+        // Without this, a bare-handed or spell exchange would end combat on the
+        // very first frame, because neither side has a weapon drawn.
+        bool sawWeaponsDrawn = false;
     };
 
     // Keyed by the remote player's form id.

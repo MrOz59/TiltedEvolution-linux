@@ -267,9 +267,15 @@ void CombatService::RunPvpCombatUpdates() noexcept
         if (!ended)
             ended = now - it->second.lastDamage >= cPvpTimeout;
 
-        // Both sides putting their weapons away is an explicit "we are done".
-        if (!ended)
-            ended = localSheathed && !pRemote->actorState.IsWeaponDrawn();
+        // Both sides putting their weapons away is an explicit "we are done",
+        // but only once we have actually seen them drawn: a fist or spell fight
+        // never draws a weapon and would otherwise end on the first frame.
+        const bool remoteDrawn = pRemote && pRemote->actorState.IsWeaponDrawn();
+        if (!localSheathed || remoteDrawn)
+            it->second.sawWeaponsDrawn = true;
+
+        if (!ended && it->second.sawWeaponsDrawn)
+            ended = localSheathed && !remoteDrawn;
 
         if (!ended)
         {
