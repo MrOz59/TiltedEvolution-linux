@@ -241,11 +241,28 @@ void CombatService::EnterPvpCombat(Actor* apLocal, Actor* apRemote) noexcept
     apRemote->SetCombatTargetEx(apLocal);
 
     // Logged at info: without it there is no way to tell from a test session
-    // whether this ran at all, and whether the game kept the target we set.
-    // The HUD reads the local player's combat target, so that is what matters.
+    // whether this ran at all, and whether the game kept what we set. The
+    // vanilla EnemyHealth HUD reads the local player's combat target, so that
+    // is the thing that has to stick.
+    //
+    // The faction list is included because SetFactions runs after
+    // SetPlayerRespawnMode during spawn and starts with RemoveFromAllFactions,
+    // so it is not obvious whether a remote player actually ends up in the
+    // player faction (0xDB1) at all. That decides whether the remaining blocker
+    // is hostility or something else entirely.
     const auto* pKeptTarget = apLocal->GetCombatTarget();
-    spdlog::info("[pvp-hud] local {:X} vs remote {:X} - combat target kept: {} (essential {}, ignoreFriendly {})", apLocal->formID, apRemote->formID, pKeptTarget == apRemote,
-                 apRemote->IsEssential(), apRemote->GetIgnoreFriendlyHit());
+    const auto remoteFactions = apRemote->GetFactions();
+
+    bool inPlayerFaction = false;
+    for (const auto& faction : remoteFactions.NpcFactions)
+    {
+        if (faction.Id.BaseId == 0xDB1)
+            inPlayerFaction = true;
+    }
+
+    spdlog::info("[pvp-hud] local {:X} vs remote {:X}: targetKept={} localInCombat={} remoteInCombat={} essential={} ignoreFriendly={} playerFaction={} npcFactions={} extraFactions={}",
+                 apLocal->formID, apRemote->formID, pKeptTarget == apRemote, apLocal->IsInCombat(), apRemote->IsInCombat(), apRemote->IsEssential(), apRemote->GetIgnoreFriendlyHit(),
+                 inPlayerFaction, remoteFactions.NpcFactions.size(), remoteFactions.ExtraFactions.size());
 }
 
 void CombatService::RunPvpCombatUpdates() noexcept
