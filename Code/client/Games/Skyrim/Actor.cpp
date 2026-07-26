@@ -351,16 +351,15 @@ void Actor::SetCombatTargetEx(Actor* apTarget) noexcept
     // target.
     combatHandle = targetHandle;
 
-    if (pCombatController && (pCombatController->targetHandle != targetHandle || pCombatController->pCachedTarget.object != apTarget))
+    if (pCombatController && pCombatController->targetHandle != targetHandle)
     {
         pCombatController->SetTarget(apTarget);
 
         // SetTarget may reject a same-faction target. Preserve the explicit
-        // PvP target after that call, including the cached pointer used by the
-        // controller between target-selection updates.
+        // PvP target after that call. Avoid writing pCachedTarget here: this
+        // reverse type does not expose Actor's intrusive ref-count operations.
         pCombatController->previousTargetHandle = targetHandle;
         pCombatController->targetHandle = targetHandle;
-        pCombatController->pCachedTarget = apTarget;
     }
 }
 
