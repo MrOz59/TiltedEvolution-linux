@@ -276,14 +276,19 @@ void CombatService::RunPvpCombatUpdates() noexcept
         // but only once we have actually seen them drawn: a fist or spell fight
         // never draws a weapon and would otherwise end on the first frame.
         const bool remoteDrawn = pRemote && pRemote->actorState.IsWeaponDrawn();
-        if (!localSheathed || remoteDrawn)
-            sawWeapons.push_back(remoteFormId);
+        const bool weaponsOut = !localSheathed || remoteDrawn;
 
         if (!isOver && engagement.sawWeaponsDrawn)
             isOver = localSheathed && !remoteDrawn;
 
         if (!isOver)
+        {
+            // Only record it for a fight that is still running: operator[] would
+            // otherwise resurrect an entry that is about to be erased.
+            if (weaponsOut && !engagement.sawWeaponsDrawn)
+                sawWeapons.push_back(remoteFormId);
             continue;
+        }
 
         if (pRemote)
         {
