@@ -32,9 +32,9 @@ protected:
     /**
      * @brief Put the local player and a remote player in mutual combat.
      *
-     * The game only draws a health bar for actors it considers hostile, and
-     * remote players sit in the player faction. Entering real combat makes the
-     * vanilla HUD (and any health bar mod) treat them like any other opponent,
+     * Remote players sit in the player faction, so StartCombat alone may leave
+     * the current combat target unset. Entering combat and explicitly keeping
+     * that target makes the vanilla EnemyHealth HUD follow the remote actor,
      * without touching factions or the respawn/bleedout behaviour.
      */
     void EnterPvpCombat(Actor* apLocal, Actor* apRemote) noexcept;
@@ -54,6 +54,9 @@ private:
     struct PvpEngagement
     {
         std::chrono::steady_clock::time_point lastDamage;
+        // Retained so the local HUD target can still be cleared if the remote
+        // actor unloads before the engagement ends.
+        uint32_t remoteHandle = 0;
         // "Both sheathed" only ends a fight that was fought with weapons out.
         // Without this, a bare-handed or spell exchange would end combat on the
         // very first frame, because neither side has a weapon drawn.

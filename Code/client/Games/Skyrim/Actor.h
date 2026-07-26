@@ -366,6 +366,7 @@ public:
 };
 
 static_assert(offsetof(Actor, currentProcess) == 0xF8);
+static_assert(offsetof(Actor, combatHandle) == 0x104);
 static_assert(offsetof(Actor, flags1) == 0xE8);
 static_assert(offsetof(Actor, actorValueOwner) == 0xB8);
 static_assert(offsetof(Actor, actorState) == 0xC0);

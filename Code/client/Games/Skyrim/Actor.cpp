@@ -339,8 +339,29 @@ void Actor::StartCombatEx(Actor* apTarget) noexcept
 
 void Actor::SetCombatTargetEx(Actor* apTarget) noexcept
 {
-    if (pCombatController)
+    const uint32_t targetHandle = apTarget ? apTarget->GetHandle().handle.iBits : 0;
+    if (apTarget && !targetHandle)
+        return;
+
+    // EnemyHealth (the vanilla HUD object) resolves the player's
+    // currentCombatTarget before falling back to its own last-hit handle.
+    // Papyrus StartCombat can leave this unset for friendly actors, which is
+    // exactly how remote players are represented. Keep the Actor field and the
+    // AI controller in agreement so both the HUD and combat code see the same
+    // target.
+    combatHandle = targetHandle;
+
+    if (pCombatController && (pCombatController->targetHandle != targetHandle || pCombatController->pCachedTarget.object != apTarget))
+    {
         pCombatController->SetTarget(apTarget);
+
+        // SetTarget may reject a same-faction target. Preserve the explicit
+        // PvP target after that call, including the cached pointer used by the
+        // controller between target-selection updates.
+        pCombatController->previousTargetHandle = targetHandle;
+        pCombatController->targetHandle = targetHandle;
+        pCombatController->pCachedTarget = apTarget;
+    }
 }
 
 void Actor::StartCombat(Actor* apTarget) noexcept

@@ -108,12 +108,19 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
         if (!arData.pCaster)
             return false;
 
-        if (!arData.pSpell->IsHealingSpell() && !arData.pSpell->IsBuffSpell())
-            return false;
-
         ActorExtension* pCasterExtension = arData.pCaster->GetExtension();
         if (!pCasterExtension->IsLocalPlayer())
             return false;
+
+        if (!arData.pSpell->IsHealingSpell() && !arData.pSpell->IsBuffSpell())
+        {
+            // Hostile effects are applied authoritatively on the target's
+            // client, so this local proxy never reaches TakeDamage. Still emit
+            // the hit now so CombatService can select it for the native HUD.
+            if (World::Get().GetServerSettings().PvpEnabled)
+                World::Get().GetRunner().Trigger(HitEvent(arData.pCaster->formID, pTargetActor->formID));
+            return false;
+        }
 
         if (arData.pSpell->IsHealingSpell())
         {
@@ -140,6 +147,11 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
                 // Heal and buff spells are already synced by the caster.
                 if (arData.pSpell->IsHealingSpell() || arData.pSpell->IsBuffSpell())
                     return false;
+
+                // Magic damage does not call Actor::TakeDamage. Mirror the
+                // physical-hit path before applying the hostile effect so the
+                // victim also sees the remote attacker in the native HUD.
+                World::Get().GetRunner().Trigger(HitEvent(arData.pCaster->formID, pTargetActor->formID));
             }
         }
 

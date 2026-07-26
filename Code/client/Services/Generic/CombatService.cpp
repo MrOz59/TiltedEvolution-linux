@@ -229,11 +229,19 @@ void CombatService::EnterPvpCombat(Actor* apLocal, Actor* apRemote) noexcept
 {
     auto& engagement = m_pvpEngagements[apRemote->formID];
     engagement.lastDamage = std::chrono::steady_clock::now();
+    engagement.remoteHandle = apRemote->GetHandle().handle.iBits;
 
-    // StartCombatEx is a no-op when the target is already the combat target, so
-    // this is safe to call on every hit.
+    // StartCombat is still useful for all of the normal combat events, but it
+    // can reject remote players because they share the player faction. Force
+    // the current targets afterwards: the vanilla EnemyHealth HUD reads the
+    // local player's currentCombatTarget directly.
     apLocal->StartCombatEx(apRemote);
     apRemote->StartCombatEx(apLocal);
+    apLocal->SetCombatTargetEx(apRemote);
+    apRemote->SetCombatTargetEx(apLocal);
+
+    spdlog::debug(
+        "[pvp-hud] target local {:X} -> remote {:X} (local handle {:X}, remote handle {:X})", apLocal->formID, apRemote->formID, apLocal->combatHandle, apRemote->combatHandle);
 }
 
 void CombatService::RunPvpCombatUpdates() noexcept
@@ -258,6 +266,8 @@ void CombatService::RunPvpCombatUpdates() noexcept
     // changes afterwards through operator[] / erase.
     Vector<uint32_t> ended;
     Vector<uint32_t> sawWeapons;
+    Actor* pHudTarget = nullptr;
+    auto latestDamage = std::chrono::steady_clock::time_point::min();
 
     for (const auto& [remoteFormId, engagement] : m_pvpEngagements)
     {
@@ -283,6 +293,20 @@ void CombatService::RunPvpCombatUpdates() noexcept
 
         if (!isOver)
         {
+            // Skyrim's target selector can clear a same-faction target on its
+            // next update. Reasserting it here is normally just two integer
+            // comparisons, and keeps the remote player's controller aimed at
+            // the local player for the lifetime of this engagement.
+            pRemote->SetCombatTargetEx(pLocalPlayer);
+
+            // The vanilla HUD has one enemy bar. If several players are
+            // engaged, display the one involved in the most recent hit.
+            if (!pHudTarget || engagement.lastDamage > latestDamage)
+            {
+                pHudTarget = pRemote;
+                latestDamage = engagement.lastDamage;
+            }
+
             // Only record it for a fight that is still running: operator[] would
             // otherwise resurrect an entry that is about to be erased.
             if (weaponsOut && !engagement.sawWeaponsDrawn)
@@ -290,12 +314,19 @@ void CombatService::RunPvpCombatUpdates() noexcept
             continue;
         }
 
+        if (pLocalPlayer->combatHandle == engagement.remoteHandle)
+        {
+            pLocalPlayer->SetCombatTargetEx(nullptr);
+            pLocalPlayer->StopCombat();
+        }
+
         if (pRemote)
         {
-            if (pLocalPlayer->GetCombatTarget() == pRemote)
-                pLocalPlayer->StopCombat();
             if (pRemote->GetCombatTarget() == pLocalPlayer)
+            {
+                pRemote->SetCombatTargetEx(nullptr);
                 pRemote->StopCombat();
+            }
         }
 
         ended.push_back(remoteFormId);
@@ -306,6 +337,9 @@ void CombatService::RunPvpCombatUpdates() noexcept
 
     for (const uint32_t cRemoteFormId : ended)
         m_pvpEngagements.erase(cRemoteFormId);
+
+    if (pHudTarget)
+        pLocalPlayer->SetCombatTargetEx(pHudTarget);
 }
 
 void CombatService::RunTargetUpdates(const float acDelta) const noexcept
