@@ -445,10 +445,17 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
         auto& update = entry.second;
         auto& movement = update.UpdatedMovement;
 
-        // Movement packets use the freshness channel and can be reordered.
-        // A forged far-future tick must not pin the entity and make every
-        // subsequent legitimate update look stale.
-        const bool isFreshMovement = message.Tick > movementComponent.Tick && message.Tick <= maxAcceptedTick;
+        // Movement packets use the freshness channel and can be reordered, so
+        // an older tick is dropped in favour of what we already have. The window
+        // is deliberately narrow: ticks come from each owner's SynchronizedClock,
+        // and two clients' clocks differ by their half-RTT estimates. Ownership
+        // of an NPC changing hands therefore makes the tick jump backwards by
+        // that difference, which must not pin the entity and reject every later
+        // update forever. Anything older than the window is treated as a new
+        // baseline rather than as a stale packet.
+        constexpr uint64_t kReorderWindowMs = 1000;
+        const bool isReordered = message.Tick <= movementComponent.Tick && movementComponent.Tick - message.Tick < kReorderWindowMs;
+        const bool isFreshMovement = !isReordered && message.Tick <= maxAcceptedTick;
 
         // Movement runs at 20 Hz per player, so aggregate instead of logging every
         // packet. Reordered/stale drops are expected under loss; a large or growing
@@ -457,7 +464,7 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
         {
             static uint64_t s_staleMovements = 0;
             if (++s_staleMovements % 25 == 1)
-                spdlog::info("[sync] rejected stale/implausible movement #{} (tick {} vs stored {}, max {})", s_staleMovements, message.Tick, movementComponent.Tick, maxAcceptedTick);
+                spdlog::info("[sync] rejected movement #{} (tick {} vs stored {}, max {}, reordered {})", s_staleMovements, message.Tick, movementComponent.Tick, maxAcceptedTick, isReordered);
         }
 
         if (isFreshMovement)
