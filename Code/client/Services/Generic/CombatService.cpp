@@ -240,8 +240,12 @@ void CombatService::EnterPvpCombat(Actor* apLocal, Actor* apRemote) noexcept
     apLocal->SetCombatTargetEx(apRemote);
     apRemote->SetCombatTargetEx(apLocal);
 
-    spdlog::debug(
-        "[pvp-hud] target local {:X} -> remote {:X} (local handle {:X}, remote handle {:X})", apLocal->formID, apRemote->formID, apLocal->combatHandle, apRemote->combatHandle);
+    // Logged at info: without it there is no way to tell from a test session
+    // whether this ran at all, and whether the game kept the target we set.
+    // The HUD reads the local player's combat target, so that is what matters.
+    const auto* pKeptTarget = apLocal->GetCombatTarget();
+    spdlog::info("[pvp-hud] local {:X} vs remote {:X} - combat target kept: {} (essential {}, ignoreFriendly {})", apLocal->formID, apRemote->formID, pKeptTarget == apRemote,
+                 apRemote->IsEssential(), apRemote->GetIgnoreFriendlyHit());
 }
 
 void CombatService::RunPvpCombatUpdates() noexcept
