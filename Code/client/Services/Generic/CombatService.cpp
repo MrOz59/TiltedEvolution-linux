@@ -254,34 +254,36 @@ void CombatService::RunPvpCombatUpdates() noexcept
     const auto now = std::chrono::steady_clock::now();
     const bool localSheathed = !pLocalPlayer->actorState.IsWeaponDrawn();
 
-    for (auto it = m_pvpEngagements.begin(); it != m_pvpEngagements.end();)
+    // Map's iterators expose the value as const, so decide first and apply the
+    // changes afterwards through operator[] / erase.
+    Vector<uint32_t> ended;
+    Vector<uint32_t> sawWeapons;
+
+    for (const auto& [remoteFormId, engagement] : m_pvpEngagements)
     {
-        auto* pRemote = Cast<Actor>(TESForm::GetById(it->first));
+        auto* pRemote = Cast<Actor>(TESForm::GetById(remoteFormId));
 
         // The remote player is gone, gave up its remote status, or died.
-        bool ended = !pRemote || !pRemote->GetExtension()->IsRemotePlayer();
+        bool isOver = !pRemote || !pRemote->GetExtension()->IsRemotePlayer();
 
-        if (!ended)
-            ended = pRemote->IsDead() || pLocalPlayer->IsDead();
+        if (!isOver)
+            isOver = pRemote->IsDead() || pLocalPlayer->IsDead();
 
-        if (!ended)
-            ended = now - it->second.lastDamage >= cPvpTimeout;
+        if (!isOver)
+            isOver = now - engagement.lastDamage >= cPvpTimeout;
 
         // Both sides putting their weapons away is an explicit "we are done",
         // but only once we have actually seen them drawn: a fist or spell fight
         // never draws a weapon and would otherwise end on the first frame.
         const bool remoteDrawn = pRemote && pRemote->actorState.IsWeaponDrawn();
         if (!localSheathed || remoteDrawn)
-            it->second.sawWeaponsDrawn = true;
+            sawWeapons.push_back(remoteFormId);
 
-        if (!ended && it->second.sawWeaponsDrawn)
-            ended = localSheathed && !remoteDrawn;
+        if (!isOver && engagement.sawWeaponsDrawn)
+            isOver = localSheathed && !remoteDrawn;
 
-        if (!ended)
-        {
-            ++it;
+        if (!isOver)
             continue;
-        }
 
         if (pRemote)
         {
@@ -291,8 +293,14 @@ void CombatService::RunPvpCombatUpdates() noexcept
                 pRemote->StopCombat();
         }
 
-        it = m_pvpEngagements.erase(it);
+        ended.push_back(remoteFormId);
     }
+
+    for (const uint32_t cRemoteFormId : sawWeapons)
+        m_pvpEngagements[cRemoteFormId].sawWeaponsDrawn = true;
+
+    for (const uint32_t cRemoteFormId : ended)
+        m_pvpEngagements.erase(cRemoteFormId);
 }
 
 void CombatService::RunTargetUpdates(const float acDelta) const noexcept
